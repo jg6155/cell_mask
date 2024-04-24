@@ -92,8 +92,8 @@ def find_min_slope_path(current_idx, path, max_dist, cur_sum, max_angle_change, 
         return None, float('inf')
     # Memoization check
     if current_idx in memo:
-        #return memo[current_idx]
-        pass # Existing path is better or equal, so skip exploring this path
+        return memo[current_idx]
+        
 
     # Update memo with the current path's slope sum and length
     
@@ -114,7 +114,7 @@ def find_min_slope_path(current_idx, path, max_dist, cur_sum, max_angle_change, 
             if result and (result_sum < min_slope_sum or (result_sum == min_slope_sum and len(result) > len(min_path))):
                 min_path = result
                 min_slope_sum = result_sum
-    #memo[current_idx] = (min_slope_sum, len(min_path))
+    memo[current_idx] = (min_slope_sum, len(min_path))
     return min_path, min_slope_sum
 
 
@@ -262,7 +262,7 @@ for key in keys:
         x_coords.append(x)
         y_coords.append(y)
 
-path,_ = find_min_slope_path(start,[(start, edge_dict[270.2502316960148][0][1])],15,0,2,5)
+path,_ = find_min_slope_path(start,[(start, edge_dict[270.2502316960148][0][1])],200,0,2,5)
 print(path)
 #print(edge_dict[270.2502316960148])
 #path, min_sum = find_min_slope_path(start,200,1,2,5)
