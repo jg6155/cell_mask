@@ -4,10 +4,10 @@ from PIL import Image
 from collections import OrderedDict
 import cv2
 import sys
+import pickle
 edge_dict = OrderedDict()
 keys = None
 sys.setrecursionlimit(10000)
-import pprint
 
 def find_edges_window_based(intensities, window_size=8):
     kernel = np.ones(window_size) / window_size
@@ -82,43 +82,58 @@ def calculate_slope_over_window(path, window_size):
     # Extract coordinates from the last `window_size` entries in the path
     _, coords = zip(*path[-window_size:])  
     x_coords, y_coords = zip(*coords)
-    fit = np.polyfit(x_coords, y_coords, 1)  # Fit a linear model (poly of degree 1)
-    slope = min(fit[0], 100) # The slope of the linear fit
+    x_fit = np.polyfit(x_coords, y_coords, 1)  # Fit a linear model (poly of degree 1)
+    y_fit = np.polyfit(y_coords,x_coords,1)
+    slope = min(x_fit[0], y_fit[0]) # The slope of the linear fit
     return abs(slope)
 
-memo = {}
-def find_min_slope_path(current_idx, path, max_dist, max_angle_change, window_size):
-    print(current_idx)
-    if len(path) > 1 and path[0][0] == current_idx%len(keys):  # Check closure of the path
-        return path  # Return the closed path if it loops back to the start
-    # Memoization check
-    if current_idx in memo:
-        best_slope_sum, best_path_length = memo[current_idx]
-        if best_slope_sum < path[-1] or (best_slope_sum == path[-1] and best_path_length >= len(path)):
-            return None  # Existing path is better or equal
 
-    # Update memo with the current path
-    memo[current_idx] = (path[-1], len(path))  # Store the current slope sum and path length
+def find_min_slope_path(current_idx, max_dist, max_angle_change, window_size, segment_size):
+    path = [(current_idx, edge_dict[keys[current_idx]][0][1])]  # Initialize with the start position; adjust accordingly.
+    total_path = []
+    cur_sum = 0
 
-    min_path = None
-    min_slope_sum = float('inf')
+    while current_idx < len(keys):
+        # Use a helper function to find the best path segment starting from current_idx
+        segment, segment_sum = explore_path_segment(current_idx, path, max_dist, 0, max_angle_change, window_size, segment_size)
+        # Update the path and current index for the next segment
+        total_path.extend(segment[:-1])  # Exclude last to avoid overlap
+        cur_sum += segment_sum
+        current_idx = segment[-1][0]  # Update the starting index for the next window
+        path = [segment[-1]]  # Start next segment from the last point of the current segment
+
+    return total_path, cur_sum
+
+
+def explore_path_segment(current_idx, path, max_dist, cur_sum, max_angle_change, window_size, segment_size):
+    # Base case: Return the path when it reaches the window size
+    if len(path) >= segment_size:
+        return path, cur_sum
+    min_path, min_slope_sum = None, float('inf')
     for i in range(1, max_angle_change + 1):
         next_idx = (current_idx + i) % len(keys)
         next_angle = keys[next_idx]
-        print(edge_dict[next_angle],next_idx)
-        for _, next_coords in edge_dict[next_angle]:
-            print(path[-1][1],next_coords)
+        
+        for _, next_coords in edge_dict[next_angle][:5]:
+            print(path[-1][1])
             if path and not is_valid_step(path[-1][1], next_coords, max_dist):
                 continue
+            
             new_path = path + [(next_idx, next_coords)]
-            if len(new_path) > window_size:
-                new_slope_sum = path[-1] + calculate_slope_over_window(new_path, window_size)
-                new_path[-1] = (new_path[-1][0], new_slope_sum)  # Update last entry with new slope sum
-            result = find_min_slope_path(next_idx, new_path, max_dist, max_angle_change, window_size)
-            if result and (result[-1] < min_slope_sum or (result[-1] == min_slope_sum and len(result) > len(min_path))):
+            # Here, calculate the incremental slope for this new segment only
+            segment_slope = calculate_slope_over_window(new_path[-window_size:], window_size)
+            new_cur_sum = cur_sum + segment_slope
+            # Recursively find the best path segment
+            result, result_sum = explore_path_segment(next_idx, new_path, max_dist, new_cur_sum, max_angle_change, window_size, segment_size)
+            if result and (result_sum < min_slope_sum):
                 min_path = result
-                min_slope_sum = result[-1]
-    return min_path
+                min_slope_sum = result_sum
+
+    return min_path, min_slope_sum
+
+
+
+
 
 
 def plot_radial_intensity_with_window_edges(image_array, nuclear_mask, center, max_len, window_size=8, steps=1080):
@@ -204,29 +219,47 @@ mask_array = np.array(Image.open(mask_path), dtype=np.uint8)
 mask2_array = np.array(Image.open(mask2_path), dtype=np.uint8)
 center = (500,500)
 window_size = 8
-distance = 170
+distance = 220
 
 # Combine masks using logical OR, convert to 32-bit signed integer
 mask_array = np.logical_or(mask_array, mask2_array).astype(np.int32)
 
 image_path = '/Users/jorgegomez/Desktop/test_img.tif'
 image_array = np.array(Image.open(image_path))
-plot_radial_intensity_with_window_edges(image_array, mask_array, center, distance)
+#plot_radial_intensity_with_window_edges(image_array, mask_array, center, distance)
+
+with open('edge_dict.pkl', 'rb') as file:
+    edge_dict = pickle.load(file)
+
 keys = list(edge_dict.keys()) 
 start = keys.index(270.2502316960148)
-print(edge_dict[270.2502316960148])
-path = find_min_slope_path(start,[(start, edge_dict[270.2502316960148][0][1])],100,2,5)
-print(path)
+x_coords, y_coords = [], []
+for key in keys:
+    points = edge_dict[key]
+    for idx, (y,x) in points:
+        x_coords.append(x)
+        y_coords.append(y)
+
+
+    
+#print(edge_dict[270.2502316960148])
+path, min_sum = find_min_slope_path(start,200,1,2,5)
+#print(path,min_sum)
+print(min_sum)
+
 
 
 plt.figure(figsize=(10, 10))
-    
+plt.scatter(x_coords,y_coords)
+
+
 # Display the image
 plt.imshow(image_array, cmap='gray')
 plt.scatter(center[0], center[1], color='green', label='Center')
+plt.scatter(edge_dict[270.2502316960148][0][1][1],edge_dict[270.2502316960148][0][1][0], label = 'Start')
 
 # Plot the path
-x_coords, y_coords = zip(*[coords for _, coords in path])
+y_coords, x_coords = zip(*[coords for _, coords in path])
 plt.plot(x_coords, y_coords, marker='o', color='red', label='Path')
 
 plt.title('Minimal Slope Path on the Image')
