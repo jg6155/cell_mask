@@ -7,7 +7,7 @@ import sys
 import pickle
 edge_dict = OrderedDict()
 keys = None
-sys.setrecursionlimit(10000)
+sys.setrecursionlimit(50000)
 
 def find_edges_window_based(intensities, window_size=8):
     kernel = np.ones(window_size) / window_size
@@ -65,15 +65,7 @@ def is_valid_step(last_coords, current_coords, max_dist):
 def is_valid_closed_path(path, max_dist):
     """Check if the last point to the first point distance is within max_dist."""
     return is_valid_step(path[-1][1], path[0][1], max_dist)
-#restrictions
-#needs to form a closed loop, must start at theta in edge dict and return to theta
-#lines from theta to -theta must satisfy min distance requirement, min width across
-#restriction on the distance between adjacent angles
-#Generate an edge dict with the maximum distance from the center to an edge of the cell
-#generate an edge dict with what you expect average distance from the center to the edge of a cell to be
-#traverse the combination of these edge dicts under the above restrictions
-#start from known edges given by cv2
-#if multiple paths take one with minimum sum of slope absolute values
+
 def calculate_slope_over_window(path, window_size):
     """Calculate the average slope over a window of angles in the path."""
     if len(path) < window_size:
@@ -87,22 +79,43 @@ def calculate_slope_over_window(path, window_size):
     slope = min(x_fit[0], y_fit[0]) # The slope of the linear fit
     return abs(slope)
 
+memo = {}
 
-def find_min_slope_path(current_idx, max_dist, max_angle_change, window_size, segment_size):
-    path = [(current_idx, edge_dict[keys[current_idx]][0][1])]  # Initialize with the start position; adjust accordingly.
-    total_path = []
-    cur_sum = 0
+def find_min_slope_path(current_idx, path, max_dist, cur_sum, max_angle_change, window_size):
+    #print(current_idx,path)
+    window_size = 1
+    print(current_idx)
+    # Check if the path has looped back to the start
+    if len(path) > 1 and path[0][0] == current_idx % len(keys):
+        return path, cur_sum  # Return the closed path with its cumulative slope sum
+    if len(path) > len(keys):
+        return None, float('inf')
+    # Memoization check
+    if current_idx in memo:
+        #return memo[current_idx]
+        pass # Existing path is better or equal, so skip exploring this path
 
-    while current_idx < len(keys):
-        # Use a helper function to find the best path segment starting from current_idx
-        segment, segment_sum = explore_path_segment(current_idx, path, max_dist, 0, max_angle_change, window_size, segment_size)
-        # Update the path and current index for the next segment
-        total_path.extend(segment[:-1])  # Exclude last to avoid overlap
-        cur_sum += segment_sum
-        current_idx = segment[-1][0]  # Update the starting index for the next window
-        path = [segment[-1]]  # Start next segment from the last point of the current segment
+    # Update memo with the current path's slope sum and length
+    
 
-    return total_path, cur_sum
+    min_path = None
+    min_slope_sum = float('inf')
+
+    for i in range(1, max_angle_change + 1):
+        next_idx = (current_idx + i) % len(keys)
+        next_angle = keys[next_idx]
+        for _, next_coords in edge_dict[next_angle]:
+            # print(path[-1][1],next_coords)
+            if path and not is_valid_step(path[-1][1], next_coords, max_dist):
+                continue
+            new_path = path + [(next_idx, next_coords)]
+            next_slope = calculate_slope_over_window(new_path, window_size)
+            result, result_sum = find_min_slope_path(next_idx, new_path[:], max_dist, next_slope+cur_sum, max_angle_change, window_size)
+            if result and (result_sum < min_slope_sum or (result_sum == min_slope_sum and len(result) > len(min_path))):
+                min_path = result
+                min_slope_sum = result_sum
+    #memo[current_idx] = (min_slope_sum, len(min_path))
+    return min_path, min_slope_sum
 
 
 def explore_path_segment(current_idx, path, max_dist, cur_sum, max_angle_change, window_size, segment_size):
@@ -219,7 +232,7 @@ mask_array = np.array(Image.open(mask_path), dtype=np.uint8)
 mask2_array = np.array(Image.open(mask2_path), dtype=np.uint8)
 center = (500,500)
 window_size = 8
-distance = 220
+distance = 170
 
 # Combine masks using logical OR, convert to 32-bit signed integer
 mask_array = np.logical_or(mask_array, mask2_array).astype(np.int32)
@@ -230,22 +243,31 @@ image_array = np.array(Image.open(image_path))
 
 with open('edge_dict.pkl', 'rb') as file:
     edge_dict = pickle.load(file)
+with open('edge_dict2.pkl','rb') as file:
+    edge_dict2 = pickle.load(file)
+keys = list(edge_dict.keys())
+for key in keys:
+    edge_dict[key].extend(edge_dict2[key])
+
+
+
 
 keys = list(edge_dict.keys()) 
 start = keys.index(270.2502316960148)
 x_coords, y_coords = [], []
 for key in keys:
     points = edge_dict[key]
+    print(edge_dict[key])
     for idx, (y,x) in points:
         x_coords.append(x)
         y_coords.append(y)
 
-
-    
+path,_ = find_min_slope_path(start,[(start, edge_dict[270.2502316960148][0][1])],15,0,2,5)
+print(path)
 #print(edge_dict[270.2502316960148])
-path, min_sum = find_min_slope_path(start,200,1,2,5)
+#path, min_sum = find_min_slope_path(start,200,1,2,5)
 #print(path,min_sum)
-print(min_sum)
+# print(min_sum)
 
 
 
@@ -267,3 +289,15 @@ plt.xlabel('X coordinate')
 plt.ylabel('Y coordinate')
 plt.legend()
 plt.show()
+
+
+
+#restrictions
+#needs to form a closed loop, must start at theta in edge dict and return to theta
+#lines from theta to -theta must satisfy min distance requirement, min width across
+#restriction on the distance between adjacent angles
+#Generate an edge dict with the maximum distance from the center to an edge of the cell
+#generate an edge dict with what you expect average distance from the center to the edge of a cell to be
+#traverse the combination of these edge dicts under the above restrictions
+#start from known edges given by cv2
+#if multiple paths take one with minimum sum of slope absolute values
