@@ -15,48 +15,20 @@ def find_edges_window_based(intensities, window_size=8):
     # Apply convolution with 'valid' mode to avoid zero padding issues
     smoothed_intensity = np.convolve(intensities, kernel, mode='valid')
     
-    # Calculate the difference between the smoothed intensities
-    intensity_diff = np.diff(smoothed_intensity, n=1)
+    # Calculate the second derivative of the smoothed intensities
+    second_derivative = np.diff(intensities, n=2)
     
-    # Apply convolution to the differences to smooth them, still using 'valid' mode
-    diff_smoothed = np.convolve(intensity_diff, kernel, mode='valid')
+    # Apply convolution to the second derivative to smooth it, still using 'valid' mode
+    #second_derivative_smoothed = np.convolve(second_derivative, kernel, mode='valid')
     
-    # Normalize the differences
-    normalized_diff = diff_smoothed / np.max(diff_smoothed, initial=1)
-    
-    # Detect edges where normalized differences are above a threshold (e.g., 90th percentile)
-    threshold = np.percentile(np.abs(normalized_diff), 90)
-    edges = np.where(np.abs(normalized_diff) > threshold)[0]
+    # Detect zero crossings
+    signs = np.sign(second_derivative)
+    zero_crossings = np.where(np.diff(signs) != 0)[0]
 
-    # Adjust edges to align with the original array indices
-    edges += window_size // 2 + 1  # Adjust for the window size and diff offset
+    # Adjust zero_crossings to align with the original array indices
+    zero_crossings += window_size + 1  # Adjust for the window size and the diff offset
 
-    # # Plotting
-    # plt.figure(figsize=(12, 6))
-    
-    # # Plot original intensities
-    # plt.subplot(1, 2, 1)
-    # plt.plot(intensities, label='Original Intensities', alpha=0.5)
-    # plt.scatter(edges, [intensities[i] for i in edges if i < len(intensities)], color='red', label='Detected Edges')
-    # plt.title('Original Intensities and Detected Edges')
-    # plt.xlabel('Pixel Index')
-    # plt.ylabel('Intensity Value')
-    # plt.legend()
-
-    # # Plot smoothed intensity and smoothed diffs
-    # plt.subplot(1, 2, 2)
-    # plt.plot(np.arange(window_size // 2, len(smoothed_intensity) + window_size // 2), smoothed_intensity, label='Smoothed Intensity')
-    # plt.plot(np.arange(window_size + 1, len(diff_smoothed) + window_size + 1), diff_smoothed, label='Smoothed Diffs')
-    # plt.scatter(edges, [smoothed_intensity[i - window_size // 2] for i in edges if i < len(smoothed_intensity) + window_size // 2], color='red', label='Edges on Smoothed')
-    # plt.title('Smoothed Intensity and Differences')
-    # plt.xlabel('Pixel Index')
-    # plt.ylabel('Intensity Value')
-    # plt.legend()
-    
-    # plt.tight_layout()
-    # plt.show()
-
-    return edges
+    return zero_crossings
 
 def is_valid_step(last_coords, current_coords, max_dist):
     """Check if the distance between two points does not exceed max_dist."""
@@ -79,74 +51,19 @@ def calculate_slope_over_window(path, window_size):
     slope = min(x_fit[0], y_fit[0]) # The slope of the linear fit
     return abs(slope)
 
-memo = {}
+
+#Use bellman-ford
+#allow each node to have 30 edges consisting of the nodes in the adjacent degrees
+#find mimimum cost to nodes that can return to the start
+#close the loop
+#maximum distance to outer edge
+#expected distance to outer edges
+#offset edge dictionaries by step_size
+#add them together
 
 def find_min_slope_path(current_idx, path, max_dist, cur_sum, max_angle_change, window_size):
-    #print(current_idx,path)
-    window_size = 1
-    print(current_idx)
-    # Check if the path has looped back to the start
-    if len(path) > 1 and path[0][0] == current_idx % len(keys):
-        return path, cur_sum  # Return the closed path with its cumulative slope sum
-    if len(path) > len(keys):
-        return None, float('inf')
-    # Memoization check
-    if current_idx in memo:
-        return memo[current_idx]
-        
-
-    # Update memo with the current path's slope sum and length
+    edge_dict
     
-
-    min_path = None
-    min_slope_sum = float('inf')
-
-    for i in range(1, max_angle_change + 1):
-        next_idx = (current_idx + i) % len(keys)
-        next_angle = keys[next_idx]
-        for _, next_coords in edge_dict[next_angle]:
-            # print(path[-1][1],next_coords)
-            if path and not is_valid_step(path[-1][1], next_coords, max_dist):
-                continue
-            new_path = path + [(next_idx, next_coords)]
-            next_slope = calculate_slope_over_window(new_path, window_size)
-            result, result_sum = find_min_slope_path(next_idx, new_path[:], max_dist, next_slope+cur_sum, max_angle_change, window_size)
-            if result and (result_sum < min_slope_sum or (result_sum == min_slope_sum and len(result) > len(min_path))):
-                min_path = result
-                min_slope_sum = result_sum
-    memo[current_idx] = (min_slope_sum, len(min_path))
-    return min_path, min_slope_sum
-
-
-def explore_path_segment(current_idx, path, max_dist, cur_sum, max_angle_change, window_size, segment_size):
-    # Base case: Return the path when it reaches the window size
-    if len(path) >= segment_size:
-        return path, cur_sum
-    min_path, min_slope_sum = None, float('inf')
-    for i in range(1, max_angle_change + 1):
-        next_idx = (current_idx + i) % len(keys)
-        next_angle = keys[next_idx]
-        
-        for _, next_coords in edge_dict[next_angle][:5]:
-            print(path[-1][1])
-            if path and not is_valid_step(path[-1][1], next_coords, max_dist):
-                continue
-            
-            new_path = path + [(next_idx, next_coords)]
-            # Here, calculate the incremental slope for this new segment only
-            segment_slope = calculate_slope_over_window(new_path[-window_size:], window_size)
-            new_cur_sum = cur_sum + segment_slope
-            # Recursively find the best path segment
-            result, result_sum = explore_path_segment(next_idx, new_path, max_dist, new_cur_sum, max_angle_change, window_size, segment_size)
-            if result and (result_sum < min_slope_sum):
-                min_path = result
-                min_slope_sum = result_sum
-
-    return min_path, min_slope_sum
-
-
-
-
 
 
 def plot_radial_intensity_with_window_edges(image_array, nuclear_mask, center, max_len, window_size=8, steps=1080):
@@ -243,11 +160,11 @@ image_array = np.array(Image.open(image_path))
 
 with open('edge_dict.pkl', 'rb') as file:
     edge_dict = pickle.load(file)
-with open('edge_dict2.pkl','rb') as file:
-    edge_dict2 = pickle.load(file)
+# with open('edge_dict2.pkl','rb') as file:
+#     edge_dict2 = pickle.load(file)
 keys = list(edge_dict.keys())
-for key in keys:
-    edge_dict[key].extend(edge_dict2[key])
+# for key in keys:
+#     edge_dict[key].extend(edge_dict2[key])
 
 
 
@@ -292,12 +209,13 @@ plt.show()
 
 
 
-#restrictions
-#needs to form a closed loop, must start at theta in edge dict and return to theta
-#lines from theta to -theta must satisfy min distance requirement, min width across
-#restriction on the distance between adjacent angles
-#Generate an edge dict with the maximum distance from the center to an edge of the cell
-#generate an edge dict with what you expect average distance from the center to the edge of a cell to be
-#traverse the combination of these edge dicts under the above restrictions
-#start from known edges given by cv2
-#if multiple paths take one with minimum sum of slope absolute values
+# needs to form a closed loop, must start at theta in edge dict and return to theta
+# lines from theta to -theta must satisfy min distance requirement, min width across
+# restriction on the distance between adjacent angles (smoothness) 
+# Generate an edge dict with the maximum distance from the center to an edge of the cell
+# generate an edge dict with what you expect average distance from the center to the edge of a cell to be
+# traverse the combination of these edge dicts under the above restrictions
+# start from known edges given by cv2
+# if multiple paths take one with minimum sum of slope absolute values
+
+
