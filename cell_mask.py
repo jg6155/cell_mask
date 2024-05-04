@@ -3,11 +3,11 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from collections import OrderedDict
 import cv2
-import sys
+import networkx as nx 
 import pickle
 edge_dict = OrderedDict()
 keys = None
-sys.setrecursionlimit(50000)
+node_to_coords = {}
 
 def find_edges_window_based(intensities, window_size=8):
     kernel = np.ones(window_size) / window_size
@@ -16,7 +16,7 @@ def find_edges_window_based(intensities, window_size=8):
     smoothed_intensity = np.convolve(intensities, kernel, mode='valid')
     
     # Calculate the second derivative of the smoothed intensities
-    second_derivative = np.diff(intensities, n=2)
+    second_derivative = np.diff(smoothed_intensity, n=2)
     
     # Apply convolution to the second derivative to smooth it, still using 'valid' mode
     #second_derivative_smoothed = np.convolve(second_derivative, kernel, mode='valid')
@@ -30,26 +30,7 @@ def find_edges_window_based(intensities, window_size=8):
 
     return zero_crossings
 
-def is_valid_step(last_coords, current_coords, max_dist):
-    """Check if the distance between two points does not exceed max_dist."""
-    return np.linalg.norm(np.array(last_coords) - np.array(current_coords)) <= max_dist
 
-def is_valid_closed_path(path, max_dist):
-    """Check if the last point to the first point distance is within max_dist."""
-    return is_valid_step(path[-1][1], path[0][1], max_dist)
-
-def calculate_slope_over_window(path, window_size):
-    """Calculate the average slope over a window of angles in the path."""
-    if len(path) < window_size:
-        return 0  # Not enough points to calculate the desired window slope
-    
-    # Extract coordinates from the last `window_size` entries in the path
-    _, coords = zip(*path[-window_size:])  
-    x_coords, y_coords = zip(*coords)
-    x_fit = np.polyfit(x_coords, y_coords, 1)  # Fit a linear model (poly of degree 1)
-    y_fit = np.polyfit(y_coords,x_coords,1)
-    slope = min(x_fit[0], y_fit[0]) # The slope of the linear fit
-    return abs(slope)
 
 
 #Use bellman-ford
@@ -61,9 +42,69 @@ def calculate_slope_over_window(path, window_size):
 #offset edge dictionaries by step_size
 #add them together
 
-def find_min_slope_path(current_idx, path, max_dist, cur_sum, max_angle_change, window_size):
-    edge_dict
-    
+
+def find_min_cost_path(start_angle, max_angle_jump=30, max_dist=20):
+    angles = list(edge_dict.keys())
+    n = len(angles)
+
+    # Find the index of the specified start angle
+    try:
+        start_index = angles.index(start_angle)
+    except ValueError:
+        return []  # Start angle not found in the angle list
+
+    # Construct the graph
+    G = nx.DiGraph()
+    for angle_idx, angle in enumerate(angles):
+        for point_idx, (_,point) in enumerate(edge_dict[angle]):
+            node_id = angle_idx * 100 + point_idx
+            G.add_node(node_id)
+            node_to_coords[node_id] = point
+
+            # Create edges between points within the allowable distance and angle jump
+            for next_angle_idx in range(angle_idx + 1, angle_idx + max_angle_jump):
+                next_angle_idx%= n
+                for next_point_idx, (_,next_point) in enumerate(edge_dict[angles[next_angle_idx]]):
+                    distance = np.linalg.norm(np.array(point) - np.array(next_point))
+                    if distance <= max_dist:
+                        next_node_id = next_angle_idx * 100 + next_point_idx
+                        G.add_edge(node_id, next_node_id, weight=distance**(3/2))
+    sorted_nodes = sorted(G.nodes())
+    subgraph_nodes = [sorted_nodes[i] for i in range(0, len(sorted_nodes), 100)]
+    last_node = subgraph_nodes[-1]
+    start_node_id = start_index * 100  # Assuming first point in the start angle is of interest
+    if start_node_id not in subgraph_nodes:
+        subgraph_nodes.append(start_node_id)
+
+    # Extract the subgraph based on these nodes
+    subgraph = G.subgraph(subgraph_nodes)
+
+    # Plotting the subgraph
+    pos = nx.spring_layout(subgraph)  # Positions for all nodes
+
+    plt.figure(figsize=(8, 8))
+    nx.draw(subgraph, pos, node_size=10, with_labels=False, node_color='skyblue', edge_color='k', linewidths=1, font_size=15)
+    plt.show()
+    # Finding the shortest path from the starting node to the ending node
+    # Assuming a wrap around from the last angle to the first angle
+    start_node = start_index * 100  # Assuming start from the first point of the start angle
+    end_index = (start_index - 1) % n
+    end_nodes = [end_index * 100 + i for i in range(len(edge_dict[angles[end_index]]))]
+
+    min_path_cost = float('inf')
+    best_path = []
+    for end_node in end_nodes:
+        try:
+            path_length = nx.dijkstra_path_length(G, start_node, end_node)
+            if path_length < min_path_cost:
+                min_path_cost = path_length
+                best_path = nx.dijkstra_path(G, start_node, end_node)
+        except nx.NetworkXNoPath:
+            print('no path found')
+            continue  # No path exists
+    return best_path
+
+
 
 
 def plot_radial_intensity_with_window_edges(image_array, nuclear_mask, center, max_len, window_size=8, steps=1080):
@@ -166,20 +207,17 @@ keys = list(edge_dict.keys())
 # for key in keys:
 #     edge_dict[key].extend(edge_dict2[key])
 
-
-
-
-keys = list(edge_dict.keys()) 
-start = keys.index(270.2502316960148)
+start_angle = 270.2502316960148
 x_coords, y_coords = [], []
 for key in keys:
     points = edge_dict[key]
-    print(edge_dict[key])
+    #print(edge_dict[key])
     for idx, (y,x) in points:
         x_coords.append(x)
         y_coords.append(y)
 
-path,_ = find_min_slope_path(start,[(start, edge_dict[270.2502316960148][0][1])],200,0,2,5)
+path = find_min_cost_path(start_angle, 100, 50)
+
 print(path)
 #print(edge_dict[270.2502316960148])
 #path, min_sum = find_min_slope_path(start,200,1,2,5)
@@ -198,7 +236,7 @@ plt.scatter(center[0], center[1], color='green', label='Center')
 plt.scatter(edge_dict[270.2502316960148][0][1][1],edge_dict[270.2502316960148][0][1][0], label = 'Start')
 
 # Plot the path
-y_coords, x_coords = zip(*[coords for _, coords in path])
+y_coords, x_coords = zip(*[node_to_coords[node_id] for node_id in path])
 plt.plot(x_coords, y_coords, marker='o', color='red', label='Path')
 
 plt.title('Minimal Slope Path on the Image')
