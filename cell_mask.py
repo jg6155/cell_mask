@@ -12,7 +12,7 @@ keys = None
 # Dictionary to map node IDs to their coordinates
 node_to_coords = {}
 
-def find_edges_window_based(intensities, window_size=8):
+def find_boundary_points(intensities, window_size=8):
     # Create a smoothing kernel
     kernel = np.ones(window_size) / window_size
     
@@ -32,7 +32,7 @@ def find_edges_window_based(intensities, window_size=8):
     # Adjust the indices to align with the original array indices
     adjusted_indices = percentile_indices + window_size - 1  # Adjust for the window size and the diff offset
 
-    return adjusted_indices
+    return adjusted_indices #indices of boundary points along a ray
 
 def weight_func(dist):
     return dist
@@ -54,7 +54,7 @@ def find_min_cost_path(start_angle, max_angle_jump=30, max_dist=20):
     for angle_idx, angle in enumerate(angles):
         print(f'node {angle}')
         for point_idx, (_, point) in enumerate(edge_dict[angle]):
-            node_id = angle_idx * 100 + point_idx
+            node_id = angle_idx * 100 + point_idx #if more than 100 potential boundary points on a ray, this must increase 
             G.add_node(node_id)
             node_to_coords[node_id] = point
 
@@ -120,15 +120,21 @@ def find_edges_on_img(image_array, nuclear_mask, center, max_len, window_size=8,
         line_y_end = int(center[0] - max_len * np.sin(angle_radians))
         cv2.line(mask, center, (line_x_end, line_y_end), 255, 1)
         mask = mask > 0
-        nuclear_exclusion = np.logical_not(nuclear_mask)
-        combined_mask = mask * nuclear_exclusion
+        nuclear_exclusion = np.logical_not(nuclear_mask) 
+        combined_mask = mask * nuclear_exclusion #exclude the nucleus
 
         line_intensities = image_array[combined_mask]
-        edges = find_edges_window_based(line_intensities, window_size)
+        edges = find_boundary_points(line_intensities, window_size)
         edge_coordinates = [(idx, np.column_stack(np.where(combined_mask))[idx]) for idx in edges]
         edge_dict[angle_degrees] = edge_coordinates
     print('found edges')
     return edge_dict
+
+def merge_ordered_dicts(dict1, dict2):
+    merged_dict = OrderedDict()
+    for key in dict1.keys():
+        merged_dict[key] = dict1[key] + dict2[key]
+    return merged_dict
 
 # Load mask images
 mask_path = '/Users/jorgegomez/Desktop/nuclear_mask.tif'
@@ -145,10 +151,15 @@ mask_array = np.logical_or(mask_array, mask2_array).astype(np.int32)
 image_path = '/Users/jorgegomez/Desktop/test_img.tif'
 image_array = np.array(Image.open(image_path))
 
-# with open('edge_dict.pkl', 'rb') as file:
-#     edge_dict = pickle.load(file)
 
-edge_dict = find_edges_on_img(image_array,mask_array, center, 220)
+
+with open('edge_dict.pkl', 'rb') as file:
+    edge_dict = pickle.load(file)
+
+# edge_dict1 = find_edges_on_img(image_array,mask_array,center, 230)
+# edge_dict2 = find_edges_on_img(image_array,mask_array, center, 170)
+# edge_dict = merge_ordered_dicts(edge_dict1,edge_dict2)
+
 keys = list(edge_dict.keys())
 start_angle = 270.2502316960148
 x_coords, y_coords = [], []
@@ -160,7 +171,6 @@ for key in keys:
 
 # Find the minimal cost path
 path = find_min_cost_path(start_angle, 100, 50)
-print(path)
 
 # Plot the edges and the path
 plt.figure(figsize=(10, 10))
