@@ -112,7 +112,7 @@ def find_min_cost_path(start_angle, max_angle_jump=30, max_dist=20):
 def find_edges_on_img(image_array, nuclear_mask, center, max_len, window_size=8, steps=1080):
     print('finding edges')
     for angle_degrees in np.linspace(0, 360, steps):
-        print(angle_degrees)
+        #print(angle_degrees)
         # Creating a mask for each angle
         mask = np.zeros_like(image_array, dtype=np.uint8)
         angle_radians = np.deg2rad(angle_degrees)
@@ -137,8 +137,8 @@ def merge_ordered_dicts(dict1, dict2):
     return merged_dict
 
 # Load mask images
-mask_path = '/Users/jorgegomez/Desktop/nuclear_mask.tif'
-mask2_path = '/Users/jorgegomez/Desktop/nuclear_mask2.tif'
+mask_path = './nuclear_mask.tif'
+mask2_path = './nuclear_mask2.tif'
 mask_array = np.array(Image.open(mask_path), dtype=np.uint8)
 mask2_array = np.array(Image.open(mask2_path), dtype=np.uint8)
 center = (500, 500)
@@ -148,7 +148,7 @@ distance = 170
 # Combine masks using logical OR, convert to 32-bit signed integer
 mask_array = np.logical_or(mask_array, mask2_array).astype(np.int32)
 
-image_path = '/Users/jorgegomez/Desktop/test_img.tif'
+image_path = './test_img.tif'
 image_array = np.array(Image.open(image_path))
 
 
